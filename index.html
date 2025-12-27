@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python Code Executor - Runs Even When Browser Closed</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, doc, updateDoc, onSnapshot, query, orderBy, Timestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyCwbbwmXwAZ6sYI4ubBubc71aamk6ukTZA",
+            authDomain: "hoster-88bb3.firebaseapp.com",
+            projectId: "hoster-88bb3",
+            storageBucket: "hoster-88bb3.firebasestorage.app",
+            messagingSenderId: "454673372418",
+            appId: "1:454673372418:web:e47942ea3dc8594cf8de1b",
+            measurementId: "G-TKQ2RECSW7"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let currentJobs = [];
+
+        // Upload and execute Python code
+        window.uploadPythonCode = async function() {
+            const code = document.getElementById('pythonCode').value;
+            const filename = document.getElementById('filename').value || 'script.py';
+            
+            if (!code.trim()) {
+                alert('Please enter Python code!');
+                return;
+            }
+
+            // Add to Firestore
+            try {
+                const docRef = await addDoc(collection(db, "python_jobs"), {
+                    code: code,
+                    filename: filename,
+                    status: 'pending',
+                    created_at: Timestamp.now(),
+                    output: '',
+                    error: '',
+                    is_running: true
+                });
+                
+                alert(`Job started! Job ID: ${docRef.id}\nCode will run even if you close browser.`);
+                document.getElementById('pythonCode').value = '';
+                document.getElementById('filename').value = '';
+            } catch (error) {
+                console.error("Error adding document: ", error);
+                alert('Error starting job!');
+            }
+        };
+
+        // Upload file
+        window.uploadPythonFile = async function() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a file!');
+                return;
+            }
+
+            if (!file.name.endsWith('.py')) {
+                alert('Please upload a Python (.py) file!');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const code = e.target.result;
+                
+                try {
+                    const docRef = await addDoc(collection(db, "python_jobs"), {
+                        code: code,
+                        filename: file.name,
+                        status: 'pending',
+                        created_at: Timestamp.now(),
+                        output: '',
+                        error: '',
+                        is_running: true
+                    });
+                    
+                    alert(`File uploaded! Job ID: ${docRef.id}\nCode will run even if you close browser.`);
+                    fileInput.value = '';
+                } catch (error) {
+                    console.error("Error: ", error);
+                    alert('Error uploading file!');
+                }
+            };
+            reader.readAsText(file);
+        };
+
+        // Stop job
+        window.stopJob = async function(jobId) {
+            if (confirm('Stop this execution?')) {
+                await updateDoc(doc(db, "python_jobs", jobId), {
+                    status: 'stopped',
+                    is_running: false
+                });
+            }
+        };
+
+        // Real-time job updates
+        const q = query(collection(db, "python_jobs"), orderBy("created_at", "desc"));
+        
+        onSnapshot(q, (snapshot) => {
+            currentJobs = [];
+            const jobsList = document.getElementById('jobsList');
+            jobsList.innerHTML = '';
+            
+            snapshot.forEach((doc) => {
+                const job = { id: doc.id, ...doc.data() };
+                currentJobs.push(job);
+                
+                const time = job.created_at?.toDate().toLocaleString() || 'Unknown';
+                
+                const jobCard = `
+                    <div class="job-card ${job.status}">
+                        <div class="job-header">
+                            <h5>${job.filename || 'script.py'}</h5>
+                            <span class="badge bg-${getStatusColor(job.status)}">${job.status}</span>
+                        </div>
+                        <div class="job-meta">
+                            <small>ID: ${doc.id}</small>
+                            <small>Started: ${time}</small>
+                        </div>
+                        ${job.output ? `<pre class="output">Output:\n${job.output}</pre>` : ''}
+                        ${job.error ? `<pre class="error">Error:\n${job.error}</pre>` : ''}
+                        ${job.is_running ? 
+                            `<button onclick="stopJob('${doc.id}')" class="btn btn-sm btn-danger">Stop</button>` : 
+                            ''
+                        }
+                    </div>
+                `;
+                
+                jobsList.innerHTML += jobCard;
+            });
+        });
+
+        function getStatusColor(status) {
+            const colors = {
+                'pending': 'warning',
+                'running': 'info',
+                'completed': 'success',
+                'error': 'danger',
+                'stopped': 'secondary'
+            };
+            return colors[status] || 'secondary';
+        }
+    </script>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="mb-4">🐍 Python Code Executor</h1>
+        <p class="lead">Upload Python code - it runs even when you close browser/shutdown computer!</p>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Upload Python Code</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label>Filename (optional):</label>
+                            <input type="text" id="filename" class="form-control" placeholder="script.py">
+                        </div>
+                        <div class="mb-3">
+                            <label>Python Code:</label>
+                            <textarea id="pythonCode" class="form-control" rows="10" placeholder="# Your Python code here
+print('Hello, World!')
+for i in range(5):
+    print(f'Counting: {i}')"></textarea>
+                        </div>
+                        <button onclick="uploadPythonCode()" class="btn btn-primary">Upload & Execute</button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Upload Python File</h5>
+                    </div>
+                    <div class="card-body">
+                        <input type="file" id="fileInput" class="form-control mb-3" accept=".py">
+                        <button onclick="uploadPythonFile()" class="btn btn-success">Upload File</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Active Jobs</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="jobsList">
+                            <!-- Jobs will appear here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-4 alert alert-info">
+            <h6>How it works:</h6>
+            <ol>
+                <li>Your code is saved to Firestore database</li>
+                <li>Backend server (always running) checks for new jobs</li>
+                <li>Python code executes on server</li>
+                <li>Results saved back to Firestore</li>
+                <li>You can close browser - execution continues!</li>
+            </ol>
+        </div>
+    </div>
+</body>
+</html>
